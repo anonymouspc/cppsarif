@@ -86,7 +86,7 @@ const errorJump = vscode.commands.registerCommand('errorJump', errorEntry => {
         file = errorEntry.file;
     
     vscode.window.showTextDocument(vscode.Uri.file(file), { preview: false }).then(editor => {
-        const position = new vscode.Position(errorEntry.line-1, Math.max(errorEntry.column-1, 0));
+        let position = new vscode.Position(errorEntry.line-1, Math.max(errorEntry.column-1, 0));
         editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
         editor.selection = new vscode.Selection(position, position);
     });
@@ -112,9 +112,15 @@ const errorAutoFocus = vscode.tasks.onDidEndTask(e => {
 
 function parseErrorList() {
     errorList.data = []
-    let filename = `${vscode.workspace.workspaceFolders[0].uri.fsPath}/binary/cache/compile_outputs.txt`;
-    if (fs.existsSync(filename))
-        fs.readFileSync(filename, 'utf-8').split('\n').forEach(line => {
+    compile_outputs_files = iterate_dir(`${vscode.workspace.workspaceFolders[0].uri.fsPath}`, /*depth=*/3).filter(file => {
+        return file.endsWith("compile_outputs.txt");
+    });
+    if (compile_outputs_files.length == 0)
+        console.warn(`No compile_outputs.txt files found`);
+    else if (compile_outputs_files.length >= 2 )
+        console.warn(`More than 1 compile_outputs.txt files found: ${compile_outputs_files}`);
+    for (compile_outputs_file of compile_outputs_files)
+        fs.readFileSync(compile_outputs_files[0], 'utf-8').split('\n').forEach(line => {
             let error = parseErrorLine(line);
             if (error != null)
                 errorList.data.push(error);
@@ -178,7 +184,7 @@ function parseErrorLine(line) {
         return new ErrorEntry(file="", line=1, column=1, message=match[0]);
 
     // Unrecognized
-    console.log(`Failed to parse "${line}"`);
+    console.warn(`Failed to parse "${line}"`)
     return null
 }
 
@@ -223,4 +229,17 @@ function formatErrorList() {
 
         ++current_index;
     }
+}
+
+function iterate_dir(dir, depth=-1) {
+    let results = []
+    for (entry of fs.readdirSync(dir))
+        try {
+            if (fs.statSync(`${dir}/${entry}`).isFile())
+                results.push(`${dir}/${entry}`)
+            else if (fs.statSync(`${dir}/${entry}`).isDirectory() && depth != 0)
+                results.push(...iterate_dir(`${dir}/${entry}`, depth-1))
+        }
+        catch (error) { }
+    return results
 }
