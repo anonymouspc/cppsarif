@@ -144,7 +144,7 @@ function showPhysicalLocation(physicalLocation, originalUriBaseIds) {
     }
 }
 
-let sarif = new Sarif("binary/cache")
+let sarif = new Sarif(vscode.workspace.getConfiguration("cppsarif").get("sarifDirectory"))
 
 let sarifView = vscode.window.createTreeView("sarifView", {
     treeDataProvider: sarif
