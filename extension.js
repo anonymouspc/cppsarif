@@ -1,245 +1,201 @@
-const vscode = require('vscode');
-const fs = require('fs');
+const vscode = require('vscode')
 
-function activate(context) {
-    context.subscriptions.push(errorView);
-    context.subscriptions.push(errorUpdate);
-    context.subscriptions.push(errorJump);
-    context.subscriptions.push(errorAutoUpdate);
-    context.subscriptions.push(errorAutoFocus)
-}
-
-function deactivate() {}
-
-module.exports = {
-    activate,
-    deactivate
-}
-
-
-
-
-class ErrorList {
-    constructor() {
-        this.data = []
-        this.onDidChangeTreeDataEmitter = new vscode.EventEmitter();
-        this.onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
+class Sarif {
+    constructor(directory) {
+        this.directory = directory
+        this.refreshEmitter = new vscode.EventEmitter()
+        this.onDidChangeTreeData = this.refreshEmitter.event
     }
 
-    getTreeItem(errorEntry) {
-        return {
-            label: errorEntry.message,
-            command: {
-                command: 'errorJump',
-                arguments: [errorEntry]
-            },
-            iconPath: errorEntry.message.trim().startsWith('internal compiler error:') ||
-                      errorEntry.message.trim().startsWith('fatal error:')             || 
-                      errorEntry.message.trim().startsWith('error:')                   ? new vscode.ThemeIcon('error') :
-                      errorEntry.message.trim().startsWith('warning:')                 ? new vscode.ThemeIcon('warning') :
-                      errorEntry.message.trim().startsWith('note:')                    ? new vscode.ThemeIcon('more') :
-                                                                                         new vscode.ThemeIcon('more'),
-            collapsibleState: errorEntry.detail.length != 0 ? vscode.TreeItemCollapsibleState.Collapsed :
-                                                              vscode.TreeItemCollapsibleState.None
+    getTreeItem(entry) {
+        return entry.getTreeItem()
+    }
+
+    async getChildren(entry) {
+        if (entry == undefined) {
+            let sarifFiles = []
+            for (let workspaceFolder of vscode.workspace.workspaceFolders)
+                try {
+                    for (let [name, fileType] of await vscode.workspace.fs.readDirectory(vscode.Uri.joinPath(workspaceFolder.uri, this.directory)))
+                        if (name.endsWith(".sarif") && fileType == vscode.FileType.File) {
+                            try {
+                                let sarifFile = await SarifFile.readFrom(vscode.Uri.joinPath(workspaceFolder.uri, this.directory, name))
+                                if (sarifFile.getChildren().length >= 1)
+                                    sarifFiles.push(sarifFile)
+                            }
+                            catch (error) {
+                                console.warn(`reading sarif file failed (with file = ${vscode.Uri.joinPath(workspaceFolder.uri, this.directory, name)}: ${error}`)
+                            }
+                        }
+                }
+                catch (error) {
+                    console.warn(`reading sarif directory failed (with directory = ${vscode.Uri.joinPath(workspaceFolder.uri, this.directory)}): ${error}`)
+                }
+            return sarifFiles
         }
-    }
-
-    getChildren(errorEntry) {
-        if (errorEntry == undefined) // Top tree.
-            return this.data;
         else
-            return errorEntry.detail;
+            return entry.getChildren()
     }
 
     refresh() {
-        this.onDidChangeTreeDataEmitter.fire();
+        this.refreshEmitter.fire()
     }
 }
 
-class ErrorEntry {
-  constructor(file, line, column, message) {
-      this.file = file;
-      this.line = line;
-      this.column = column;
-      this.message = message;
-      this.detail = [];
-  }
+class SarifFile {
+    static async readFrom(uri) {
+        let sarifFile = new SarifFile()
+        Object.assign(sarifFile, JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf-8")))
+        sarifFile.uri      = uri
+        sarifFile.children = []
+        for (let run of sarifFile.runs)
+            for (let result of run.results)
+                sarifFile.children.push(new SarifResult(result, run))
+        return sarifFile
+    }
+
+    getTreeItem() { 
+        return {
+            iconPath: getIconPath("file"),
+            label: this.uri.path.split('/').at(-1).slice(0, -".sarif".length),
+            collapsibleState: this.getChildren().length >= 1 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None
+        }
+    }
+
+    getChildren() {
+        return this.children
+    }
 }
 
+class SarifResult {
+    constructor(object, parentRun) {
+        Object.assign(this, object)
+        this.parentRun = parentRun
+        this.children  = []
+        this.locationIndex = 0
+        if (this.relatedLocations != undefined) {
+            let mountable = new Map([[-1, this], [0, this]])
+            for (let relatedLocation of this.relatedLocations)
+                if (relatedLocation.message != undefined) {
+                    let sarifRelatedLocation = new SarifRelatedLocation(relatedLocation, this.parentRun)
+                    mountable.get(relatedLocation.properties.nestingLevel - 1).mountChild(sarifRelatedLocation)
+                    mountable.set(relatedLocation.properties.nestingLevel, sarifRelatedLocation)  
+                }                        
+        }
+    }
 
+    getTreeItem() {
+        this.locationIndex++
+        return {
+            iconPath: getIconPath(this.ruleId),
+            label: this.message.text,
+            command: showPhysicalLocation(this.locations[this.locationIndex % this.locations.length].physicalLocation, this.parentRun.originalUriBaseIds),
+            collapsibleState: this.getChildren().length >= 1 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None
+        }
+    }
 
-const errorList = new ErrorList();
+    getChildren() {
+        return this.children
+    }
 
-const errorView = vscode.window.createTreeView('errorView', {
-    treeDataProvider: errorList
-});
+    mountChild(child) {
+        this.children.push(child)
+    }
+}
 
-const errorUpdate = vscode.commands.registerCommand('errorUpdate', () => {
-    parseErrorList();
-    formatErrorList();
-    errorList.refresh();
-});
+class SarifRelatedLocation {
+    constructor(object, parentRun) {
+        Object.assign(this, object)
+        this.parentRun = parentRun
+        this.children  = []
+    }
 
-const errorJump = vscode.commands.registerCommand('errorJump', errorEntry => {
-    let file = `${vscode.workspace.workspaceFolders[0].uri.fsPath}/${errorEntry.file}`;
-    if (!fs.existsSync(file)) // Not a relative path
-        file = errorEntry.file;
-    
-    vscode.window.showTextDocument(vscode.Uri.file(file), { preview: false }).then(editor => {
-        let position = new vscode.Position(errorEntry.line-1, Math.max(errorEntry.column-1, 0));
-        editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
-        editor.selection = new vscode.Selection(position, position);
-    });
-});
+    getTreeItem() {
+        return {
+            iconPath: getIconPath("note"),
+            label: this.message.text,
+            command: this.physicalLocation != undefined ? showPhysicalLocation(this.physicalLocation, this.parentRun.originalUriBaseIds) : undefined,
+            collapsibleState: this.getChildren().length >= 1 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None
+        }
+    }
 
-const errorAutoUpdate = errorView.onDidChangeVisibility(view => {
+    getChildren() {
+        return this.children
+    }
+
+    mountChild(child) {
+        this.children.push(child)
+    }
+}
+
+function getIconPath(name) {
+    // Explicit write each case here.
+    return name == "file"    ? new vscode.ThemeIcon("file")    :
+           name == "error"   ? new vscode.ThemeIcon("error")   :
+           name == "warning" ? new vscode.ThemeIcon("warning") :
+           name == "note"    ? new vscode.ThemeIcon("more")    :
+                               new vscode.ThemeIcon("more")
+}
+
+function showPhysicalLocation(physicalLocation, originalUriBaseIds) {
+    return {
+        command: "showPhysicalLocation",
+        arguments: [physicalLocation, originalUriBaseIds]
+    }
+}
+
+let sarif = new Sarif("binary/cache")
+
+let sarifView = vscode.window.createTreeView("sarifView", {
+    treeDataProvider: sarif
+})
+
+let sarifRefreshCommand = vscode.commands.registerCommand("sarifRefresh", () => {
+    sarif.refresh()
+})
+
+let sarifRefreshDaemon = sarifView.onDidChangeVisibility(view => {
     if (view.visible)
-        vscode.commands.executeCommand('errorUpdate')
-});
+        vscode.commands.executeCommand("sarifRefresh")
+})
 
-const errorAutoFocus = vscode.tasks.onDidEndTask(e => {
-    if (e.exitCode != 0) {
-        vscode.commands.executeCommand('errorUpdate');
-        if (errorList.data.length > 0)
-            vscode.commands.executeCommand('errorView.focus');
+let sarifFocusDaemon = vscode.tasks.onDidEndTask(task => {
+    if (task.exitCode != 0) {
+        vscode.commands.executeCommand("sarifRefresh")
+        if (sarif.getChildren().length >= 1)
+            vscode.commands.executeCommand("sarifView.focus")
     }
-});
+})
 
+let showPhysicalLocationCommand = vscode.commands.registerCommand('showPhysicalLocation', async (physicalLocation, originalUriBaseIds) => {
+    let editor = await vscode.window.showTextDocument(
+        physicalLocation.artifactLocation.uriBaseId != undefined ? 
+            vscode.Uri.parse(`${originalUriBaseIds[physicalLocation.artifactLocation.uriBaseId].uri}/${physicalLocation.artifactLocation.uri}`) : 
+            vscode.Uri.file(`${physicalLocation.artifactLocation.uri}`),
+        {preview: false}
+    )
+    let selectBegin = new vscode.Position(
+        physicalLocation.region.startLine   - 1, 
+        physicalLocation.region.startColumn - 1
+    )
+    let selectEnd = new vscode.Position(
+        physicalLocation.region.endLine != undefined ? 
+            physicalLocation.region.endLine   - 1 :
+            physicalLocation.region.startLine - 1, 
+        physicalLocation.region.endColumn - 1
+    )
+    editor.revealRange(new vscode.Range(selectBegin, selectEnd), vscode.TextEditorRevealType.InCenter)
+    editor.selection = new vscode.Selection(selectBegin, selectEnd)
+})
 
-
-
-
-
-function parseErrorList() {
-    errorList.data = []
-    compile_outputs_files = iterate_dir(`${vscode.workspace.workspaceFolders[0].uri.fsPath}`, /*depth=*/3).filter(file => {
-        return file.endsWith("compile_outputs.txt");
-    });
-    if (compile_outputs_files.length == 0)
-        console.warn(`No compile_outputs.txt files found`);
-    else if (compile_outputs_files.length >= 2 )
-        console.warn(`More than 1 compile_outputs.txt files found: ${compile_outputs_files}`);
-    for (compile_outputs_file of compile_outputs_files)
-        fs.readFileSync(compile_outputs_files[0], 'utf-8').split('\n').forEach(line => {
-            let error = parseErrorLine(line);
-            if (error != null)
-                errorList.data.push(error);
-        })
+function activate(context) {
+    context.subscriptions.push(sarifView)
+    context.subscriptions.push(sarifRefreshCommand)
+    context.subscriptions.push(sarifRefreshDaemon)
+    context.subscriptions.push(sarifFocusDaemon)
+    context.subscriptions.push(showPhysicalLocationCommand)
 }
 
-function parseErrorLine(line) { 
-    // Remove color
-    line = line.replace(/\x1b\[([0-9;]*m|K)/g, '');
-
-    // 123 | source.code(raw)
-    // +++ |+#include <iostream>
-    //     |          ^~~~~~~~~~
-    // [[empty-line]]
-    if (line.match(/\s*[0-9]+\s*\|.*/) || 
-        line.match(/\s*[\+]+\s*\|.*/) ||
-        line.match(/\s+\|[\s^~]+/) || 
-        String(line).trim() == '')
-        return null;
-
-    let match = [];
-    
-    // In file included from path/to/file:12,
-    match = line.match(/In file included from ([A-Z]:[^:]*|[^:]+):(\d+)(?:,|:)/)
-    if (match)
-        return new ErrorEntry(file=match[1], line=match[2], column=1, message=match[0]);
-
-    //                  from path/to/file:34:
-    match = line.match(/                 from ([A-Z]:[^:]*|[^:]+):(\d+)(?:,|:)/)
-    if (match)
-        return new ErrorEntry(file=match[1], line=match[2], column=1, message=match[0]);
-
-    // of module my.module:partition, imported at path/to/file:56
-    match = line.match(/of module [\w\.:]+, imported at ([A-Z]:[^:]*|[^:]+):(\d+)(?:,|:)/)
-    if (match)
-        return new ErrorEntry(file=match[1], line=match[2], column=1, message=match[0]);
-    
-    //     inlined from 'constexpr function(args)' at path/to/file:12:34,
-    match = line.match(/    inlined from '(?:[^']*)' at ([A-Z]:[^:]*|[^:]+):(\d+):(\d+)(?:,|:)/)
-    if (match)
-        return new ErrorEntry(file=match[1], line=match[2], column=match[3], message=match[0]);
-
-    // path/to/file:12:34: message...
-    match = line.match(/([A-Z]:[^:]*|[^:]+):(\d+):(\d+): (.*)/); 
-    if (match)
-        return new ErrorEntry(file=match[1], line=match[2], column=match[3], message=match[4]);
-
-    // path/to/file:12: message...
-    match = line.match(/([A-Z]:[^:]*|[^:]+):(\d+): (.*)/);
-    if (match)
-        return new ErrorEntry(file=match[1], line=match[2], column=1, message=match[3]);
-
-    // path/to/file: message...
-    match = line.match(/([A-Z]:[^:]*|[^:]+): (.*)/);
-    if (match)
-        return new ErrorEntry(file=match[1], line=1, column=1, message=match[2]);
-
-    // message...
-    match = line.match(/.*/);
-    if (match)
-        return new ErrorEntry(file="", line=1, column=1, message=match[0]);
-
-    // Unrecognized
-    console.warn(`Failed to parse "${line}"`)
-    return null
-}
-
-function formatErrorList() {
-    let current_index  = 0;
-    let pushable_index = 0;
-    let prefices       = [];
-
-    while (current_index < errorList.data.length) {
-        if (errorList.data[current_index].message.trim().startsWith('internal compiler error:') ||
-            errorList.data[current_index].message.trim().startsWith('fatal error:')             ||
-            errorList.data[current_index].message.trim().startsWith('error:')                   ||
-            errorList.data[current_index].message.trim().startsWith('warning:')) {
-                pushable_index = current_index;
-                for (prefix of prefices)
-                    errorList.data[pushable_index].detail.push(prefix);
-                prefices = []
-            }
-                
-        else if (errorList.data[current_index].message.trim().startsWith('note:')) {
-            for (prefix of prefices)
-                errorList.data[current_index].detail.push(prefix);
-            prefices = []
-            errorList.data[pushable_index].detail.push(errorList.data[current_index]);
-            errorList.data.splice(current_index, 1);
-            --current_index;
-        }
-        else if (errorList.data[current_index].file.trim() == ""    &&
-                 current_index < errorList.data.length              &&
-                 errorList.data[current_index+1].message.trim() == "") {
-            errorList.data[current_index].file   = errorList.data[current_index+1].file
-            errorList.data[current_index].line   = errorList.data[current_index+1].line
-            errorList.data[current_index].column = errorList.data[current_index+1].column
-            errorList.data.splice(current_index+1, 1)
-            --current_index
-        }
-        else {
-            prefices.push(errorList.data[current_index]);
-            errorList.data.splice(current_index, 1);
-            --current_index;
-        }
-
-        ++current_index;
-    }
-}
-
-function iterate_dir(dir, depth=-1) {
-    let results = []
-    for (entry of fs.readdirSync(dir))
-        try {
-            if (fs.statSync(`${dir}/${entry}`).isFile())
-                results.push(`${dir}/${entry}`)
-            else if (fs.statSync(`${dir}/${entry}`).isDirectory() && depth != 0)
-                results.push(...iterate_dir(`${dir}/${entry}`, depth-1))
-        }
-        catch (error) { }
-    return results
+module.exports = {
+    activate
 }

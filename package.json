@@ -1,11 +1,11 @@
 {
-    "name": "vscode-cpp-error",
-    "displayName": "vscode-cpp-error",
-    "description": "vscode-cpp-error",
+    "name": "cppsarif",
+    "displayName": "cppsarif",
+    "description": "cppsarif",
     "version": "1.0.0",
     "publisher": "anonymouspc",
     "engines": {
-        "vscode": "^1.60.0"
+        "vscode": "^1.100.0"
     },
     "main": "./extension.js",
     "activationEvents": [
@@ -15,17 +15,17 @@
         "viewsContainers": {
             "activitybar": [
                 {
-                    "id": "error",
-                    "title": "error",
+                    "id": "sarif",
+                    "title": "sarif",
                     "icon": "./resource/activitybar/icon.svg"
                 }
             ]
         },
         "views": {
-            "error": [
+            "sarif": [
                 {
-                    "id": "errorView",
-                    "name": "errorView",
+                    "id": "sarifView",
+                    "name": "sarifView",
                     "icon": "./resource/activitybar/icon.svg"
                 }
             ]
@@ -33,6 +33,6 @@
     },
     "repository": {
         "type": "git",
-        "url": "https://github.com/anonymouspc/vscode-cpp-error"
+        "url": "https://github.com/anonymouspc/cppsarif"
     }
 }
