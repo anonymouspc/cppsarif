@@ -2,7 +2,8 @@
     "name": "cppsarif",
     "displayName": "cppsarif",
     "description": "cppsarif",
-    "version": "1.0.0",
+    "icon": "share/icon.png",
+    "version": "1.0.2",
     "publisher": "anonymouspc",
     "engines": {
         "vscode": "^1.100.0"
@@ -17,7 +18,7 @@
                 {
                     "id": "sarif",
                     "title": "sarif",
-                    "icon": "share/icon.svg"
+                    "icon": "share/activitybar.svg"
                 }
             ]
         },
@@ -25,8 +26,7 @@
             "sarif": [
                 {
                     "id": "sarifView",
-                    "name": "sarifView",
-                    "icon": "share/icon.svg"
+                    "name": "sarifView"
                 }
             ]
         }
