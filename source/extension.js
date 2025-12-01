@@ -87,7 +87,7 @@ class SarifResult {
     getTreeItem() {
         this.locationIndex++
         return {
-            iconPath: getIconPath(this.ruleId),
+            iconPath: getIconPath(this.level),
             label: this.message.text,
             command: showPhysicalLocation(this.locations[this.locationIndex % this.locations.length].physicalLocation, this.parentRun.originalUriBaseIds),
             collapsibleState: this.getChildren().length >= 1 ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None
