@@ -3,11 +3,14 @@
     "displayName": "cppsarif",
     "description": "cppsarif",
     "icon": "share/icon.png",
-    "version": "1.0.2",
     "publisher": "anonymouspc",
+    "version": "1.0.2",
     "engines": {
         "vscode": "^1.100.0"
     },
+    "categories": [
+        "Debuggers", "Language Packs", "Themes"
+    ],
     "main": "source/extension.js",
     "activationEvents": [
         "onStartupFinished"
