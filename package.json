@@ -7,7 +7,7 @@
     "engines": {
         "vscode": "^1.100.0"
     },
-    "main": "./extension.js",
+    "main": "source/extension.js",
     "activationEvents": [
         "onStartupFinished"
     ],
@@ -17,7 +17,7 @@
                 {
                     "id": "sarif",
                     "title": "sarif",
-                    "icon": "icon.svg"
+                    "icon": "share/icon.svg"
                 }
             ]
         },
@@ -26,7 +26,7 @@
                 {
                     "id": "sarifView",
                     "name": "sarifView",
-                    "icon": "icon.svg"
+                    "icon": "share/icon.svg"
                 }
             ]
         }
