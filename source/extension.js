@@ -6,7 +6,7 @@ class Sarif {
         this.refreshEmitter = new vscode.EventEmitter()
         this.onDidChangeTreeData = this.refreshEmitter.event
     }
-
+     
     getTreeItem(entry) {
         return entry.getTreeItem()
     }
