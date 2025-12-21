@@ -4,7 +4,7 @@ let fs = require("fs")
 try {
     child_process.execSync("git add .")
     child_process.execSync("git commit -m update")
-    child_process.execSync("git pull --merge")
+    child_process.execSync("git pull")
 }
 catch (error) { 
     // pass
