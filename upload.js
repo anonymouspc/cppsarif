@@ -1,4 +1,5 @@
 let child_process = require("child_process")
+let fs = require("fs")
 
 try {
     child_process.execSync("git add .")
@@ -8,5 +9,5 @@ catch (error) {
     // pass
 }
 
-child_process.execSync("vsce publish patch")
+child_process.execSync(`vsce publish ${fs.readFileSync("../token/vsce.personal-access.token")} patch`)
 child_process.execSync("git push")
