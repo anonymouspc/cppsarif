@@ -20,7 +20,7 @@
             "sarif": [
                 {
                     "id": "sarifView",
-                    "name": "sarifView",
+                    "name": "%title%",
                     "icon": "view/activity-bar.svg"
                 }
             ]
@@ -29,7 +29,7 @@
             "activitybar": [
                 {
                     "id": "sarif",
-                    "title": "sarif",
+                    "title": "%title%",
                     "icon": "view/activity-bar.svg"
                 }
             ]
