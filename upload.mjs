@@ -22,7 +22,7 @@ try {
 try {
     await child_process.promises.exec(`vsce publish patch --pat ${await fs.promises.readFile("vsce-token.txt")}`)
 } catch (_) {
-    throw new Error("failed to upload vsce extension") // Avoid vsce-token to be printed in error.
+    throw new Error("failed to upload vsce extension") // Avoid vsce-token to be printed in stderr.
 }
 
 // Git push

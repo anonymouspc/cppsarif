@@ -13,7 +13,7 @@
     ],
     "repository": {
         "type": "git",
-        "url": "https://github.com/anonymouspc/cppsarif"
+        "url": "https://github.com/anonymouspc/vscode-cppsarif"
     },
     "main": "view/sarif.js",
     "activationEvents": [
